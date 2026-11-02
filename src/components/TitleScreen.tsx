@@ -1,5 +1,5 @@
-import React from 'react';
-import { Volume2, VolumeX, Music, Award, Play, Shield, Compass, Zap, Maximize, Minimize } from 'lucide-react';
+import React, { useState } from 'react';
+import { Volume2, VolumeX, Music, Award, Play, Shield, Compass, Zap, Maximize, Minimize, Camera, Check } from 'lucide-react';
 import { DifficultyMode } from '../types/game';
 import { DIFFICULTIES } from '../utils/constants';
 
@@ -28,6 +28,24 @@ export const TitleScreen: React.FC<TitleScreenProps> = ({
   isFullscreen,
   onToggleFullscreen,
 }) => {
+  const [captured, setCaptured] = useState(false);
+
+  const handleCaptureScreenshot = () => {
+    try {
+      const canvas = document.querySelector('canvas');
+      if (!canvas) return;
+      const dataUrl = canvas.toDataURL('image/jpeg', 0.95);
+      const link = document.createElement('a');
+      link.download = `flying_leader_title_${Date.now()}.jpg`;
+      link.href = dataUrl;
+      link.click();
+      setCaptured(true);
+      setTimeout(() => setCaptured(false), 2000);
+    } catch (e) {
+      console.warn('Screenshot capture notice:', e);
+    }
+  };
+
   return (
     <div className="absolute inset-0 z-30 flex flex-col justify-between p-4 sm:p-8 md:p-12 bg-slate-950/75 backdrop-blur-md text-white select-none overflow-y-auto pt-[max(1rem,env(safe-area-inset-top))] pb-[max(1rem,env(safe-area-inset-bottom))] px-[max(1rem,env(safe-area-inset-left))] animate-fadeIn">
       {/* Top Formal Status Cluster */}
@@ -47,6 +65,15 @@ export const TitleScreen: React.FC<TitleScreenProps> = ({
 
         {/* Action Controls */}
         <div className="flex items-center gap-1.5 sm:gap-2">
+          <button
+            onClick={handleCaptureScreenshot}
+            aria-label="Save Screenshot"
+            title="Save Screenshot"
+            className="p-2 sm:p-2.5 min-w-[40px] min-h-[40px] flex items-center justify-center rounded-xl border border-slate-700/80 bg-slate-900/80 hover:bg-slate-800 text-slate-300 hover:text-white transition shadow-md active:scale-95 cursor-pointer"
+          >
+            {captured ? <Check className="w-4 h-4 text-emerald-400" /> : <Camera className="w-4 h-4 text-amber-400" />}
+          </button>
+
           <button
             onClick={onToggleFullscreen}
             aria-label="Toggle Fullscreen"

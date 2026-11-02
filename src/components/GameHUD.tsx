@@ -1,5 +1,5 @@
-import React from 'react';
-import { Pause, Volume2, VolumeX, Music, Award, Maximize, Minimize, ArrowUp } from 'lucide-react';
+import React, { useState } from 'react';
+import { Pause, Volume2, VolumeX, Music, Award, Maximize, Minimize, ArrowUp, Camera, Check } from 'lucide-react';
 import { DifficultyMode } from '../types/game';
 
 interface GameHUDProps {
@@ -29,6 +29,24 @@ export const GameHUD: React.FC<GameHUDProps> = ({
   isFullscreen,
   onToggleFullscreen,
 }) => {
+  const [captured, setCaptured] = useState(false);
+
+  const handleCaptureScreenshot = () => {
+    try {
+      const canvas = document.querySelector('canvas');
+      if (!canvas) return;
+      const dataUrl = canvas.toDataURL('image/jpeg', 0.95);
+      const link = document.createElement('a');
+      link.download = `flying_leader_screenshot_${Date.now()}.jpg`;
+      link.href = dataUrl;
+      link.click();
+      setCaptured(true);
+      setTimeout(() => setCaptured(false), 2000);
+    } catch (e) {
+      console.warn('Screenshot capture notice:', e);
+    }
+  };
+
   return (
     <div className="absolute inset-0 pointer-events-none z-20 flex flex-col justify-between p-3 sm:p-6 pt-[max(0.75rem,env(safe-area-inset-top))] pb-[max(0.75rem,env(safe-area-inset-bottom))] px-[max(0.75rem,env(safe-area-inset-left))] select-none">
       {/* Top Status & Controls Cluster */}
@@ -58,6 +76,15 @@ export const GameHUD: React.FC<GameHUDProps> = ({
 
         {/* Right: Quick Action Controls */}
         <div className="flex items-center gap-1.5 sm:gap-2 pointer-events-auto">
+          <button
+            onClick={handleCaptureScreenshot}
+            aria-label="Capture In-Game Screenshot"
+            title="Save Screenshot"
+            className="p-2 sm:p-2.5 min-w-[36px] min-h-[36px] sm:min-w-[42px] sm:min-h-[42px] flex items-center justify-center rounded-xl bg-slate-950/80 hover:bg-slate-900 border border-slate-800 text-slate-300 hover:text-white transition shadow-lg backdrop-blur-md active:scale-95 cursor-pointer"
+          >
+            {captured ? <Check className="w-4 h-4 text-emerald-400" /> : <Camera className="w-4 h-4 text-amber-400" />}
+          </button>
+
           <button
             onClick={onToggleFullscreen}
             aria-label="Toggle Fullscreen"
@@ -104,7 +131,6 @@ export const GameHUD: React.FC<GameHUDProps> = ({
 
       {/* Bottom Minimalist Status Line / Mobile Elevation Trigger Guide */}
       <div className="w-full flex flex-col items-center gap-1.5 pb-1 pointer-events-none">
-        {/* Mobile touch trigger button (pointer-events-auto so phone users can tap it or anywhere) */}
         <div className="sm:hidden pointer-events-auto flex items-center gap-2 px-5 py-2.5 rounded-full bg-slate-900/80 border border-amber-500/40 text-amber-300 text-xs font-bold shadow-2xl backdrop-blur-md active:scale-95 active:bg-amber-500/30 transition">
           <ArrowUp className="w-4 h-4 animate-bounce" />
           <span>TAP ANYWHERE TO ELEVATE</span>
