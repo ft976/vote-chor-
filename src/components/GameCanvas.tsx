@@ -19,7 +19,6 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({
 }) => {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
 
-  // Keep live references to state
   const screenRef = useRef<GameScreen>(screen);
   screenRef.current = screen;
 
@@ -36,6 +35,7 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({
   onMilestoneRef.current = onMilestone;
 
   const jumpTriggeredRef = useRef<boolean>(false);
+  const lastTouchTimeRef = useRef<number>(0);
 
   useEffect(() => {
     const canvas = canvasRef.current;
@@ -73,15 +73,18 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({
     resizeCanvas();
     window.addEventListener('resize', resizeCanvas);
 
-    // Dynamic bird starting placement
-    const getBirdStartX = () => Math.min(180, Math.max(90, viewW * 0.18));
+    // Dynamic bird starting placement and scaling based on mobile vs desktop
+    const isMobile = () => viewW < 640;
+    const getBirdSize = () => (isMobile() ? 40 : 44);
+    const getBirdStartX = () => (isMobile() ? Math.max(65, viewW * 0.22) : Math.min(180, Math.max(90, viewW * 0.18)));
     const getBirdStartY = () => viewH * 0.38;
 
+    let birdSize = getBirdSize();
     let bird: BirdState = {
       x: getBirdStartX(),
       y: getBirdStartY(),
-      width: 44,
-      height: 44,
+      width: birdSize,
+      height: birdSize,
       velocity: 0,
       gravity: configRef.current.gravity,
       lift: configRef.current.lift,
@@ -105,11 +108,12 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({
     let isGameOverTriggered = false;
 
     const resetGame = () => {
+      birdSize = getBirdSize();
       bird = {
         x: getBirdStartX(),
         y: getBirdStartY(),
-        width: 44,
-        height: 44,
+        width: birdSize,
+        height: birdSize,
         velocity: 0,
         gravity: configRef.current.gravity,
         lift: configRef.current.lift,
@@ -168,11 +172,22 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({
       if (isGameOverTriggered) return;
 
       bird.velocity = configRef.current.lift;
-      bird.scaleX = 0.85;
-      bird.scaleY = 1.2;
+      bird.scaleX = 0.84;
+      bird.scaleY = 1.22;
+
+      // Play audio (unlocking automatically handled)
       audioSystem.playJump();
 
-      // Formal aerodynamic propulsion trail
+      // Mobile haptic feedback
+      if (typeof navigator !== 'undefined' && 'vibrate' in navigator) {
+        try {
+          navigator.vibrate(10);
+        } catch {
+          // ignore
+        }
+      }
+
+      // Propulsive particles
       addParticles(bird.x + 8, bird.y + bird.height - 4, 6, [
         '#f59e0b',
         '#ffffff',
@@ -211,6 +226,15 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({
       hitFlashAlpha = 0.65;
       hitstopRemainingMs = 70;
 
+      // Haptic impact for phone users
+      if (typeof navigator !== 'undefined' && 'vibrate' in navigator) {
+        try {
+          navigator.vibrate([35, 25, 50]);
+        } catch {
+          // ignore
+        }
+      }
+
       addParticles(bird.x + bird.width / 2, bird.y + bird.height / 2, 32, [
         '#ef4444',
         '#f59e0b',
@@ -234,10 +258,9 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({
       lastTime = currentTime;
 
       const currentScreen = screenRef.current;
-      const groundH = 22;
+      const groundH = isMobile() ? 26 : 22;
       const groundY = viewH - groundH;
 
-      // Handle queued flap
       if (jumpTriggeredRef.current) {
         jumpTriggeredRef.current = false;
         performJump();
@@ -250,41 +273,51 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({
         bird.velocity += currentCfg.gravity;
         bird.y += bird.velocity;
 
-        // Smooth restitution of scale
         bird.scaleX += (1 - bird.scaleX) * 0.16;
         bird.scaleY += (1 - bird.scaleY) * 0.16;
 
-        // Controlled rotation tilt
         bird.targetRotation = Math.min(Math.PI / 4, Math.max(-Math.PI / 4, (bird.velocity / 7.5) * 0.5));
         bird.rotation += (bird.targetRotation - bird.rotation) * 0.22;
 
-        // Lower boundary collision
         if (bird.y + bird.height >= groundY) {
           bird.y = groundY - bird.height;
           handleGameOver();
         }
 
-        // Upper boundary collision
         if (bird.y < 0) {
           bird.y = 0;
           bird.velocity = 0;
         }
 
-        // Keep bird x aligned to responsive layout
         const targetBirdX = getBirdStartX();
         bird.x += (targetBirdX - bird.x) * 0.05;
 
-        // Dynamic pipe spawning based on full screen dimensions
-        const spawnInterval = currentCfg.pipeSpawnInterval;
+        // Dynamic, balanced obstacle speeds across all screen ratios
+        // Phone screens get balanced transit time (~2.8s) so obstacles aren't unfairly fast
+        const baseSpeed = isMobile()
+          ? Math.max(1.5, viewW / (3.0 * 60)) * currentCfg.speed
+          : Math.max(1.8, (viewW / 750) * 1.3) * currentCfg.speed;
+
+        // Responsive gap & spawn interval
+        const spawnInterval = isMobile()
+          ? Math.floor(currentCfg.pipeSpawnInterval * 0.95)
+          : currentCfg.pipeSpawnInterval;
+
         if (frame % spawnInterval === 0) {
-          const gap = Math.min(220, Math.max(currentCfg.gap, viewH * 0.26));
-          const minPipeH = Math.max(70, viewH * 0.12);
-          const maxPipeH = Math.max(minPipeH + 50, viewH - gap - minPipeH - groundH - 40);
+          // Ensure clearance for bird
+          const gap = isMobile()
+            ? Math.max(170, Math.min(230, viewH * 0.28))
+            : Math.min(220, Math.max(currentCfg.gap, viewH * 0.26));
+
+          const minPipeH = Math.max(65, viewH * 0.11);
+          const maxPipeH = Math.max(minPipeH + 40, viewH - gap - minPipeH - groundH - 30);
           const topH = Math.floor(Math.random() * (maxPipeH - minPipeH)) + minPipeH;
           const bottomY = topH + gap;
           const bottomH = groundY - bottomY;
 
-          const pipeWidth = Math.min(95, Math.max(72, viewW * 0.075));
+          const pipeWidth = isMobile()
+            ? Math.min(76, Math.max(58, viewW * 0.15))
+            : Math.min(95, Math.max(72, viewW * 0.075));
 
           pipes.push({
             id: pipeIdCounter++,
@@ -297,12 +330,12 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({
           });
         }
 
-        // Obstacle progression
+        // Obstacle movement
         for (let i = pipes.length - 1; i >= 0; i--) {
           const pipe = pipes[i];
-          pipe.x -= currentCfg.speed * (viewW > 1200 ? 1.35 : 1.15);
+          pipe.x -= baseSpeed;
 
-          // Scoring logic
+          // Clear waypoint
           if (!pipe.passed && pipe.x + pipe.width < bird.x) {
             pipe.passed = true;
             score += currentCfg.scoreMultiplier;
@@ -311,15 +344,16 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({
 
             addFloatingText(
               pipe.x + pipe.width / 2,
-              pipe.topHeight + currentCfg.gap / 2,
+              pipe.topHeight + (pipe.bottomY - pipe.topHeight) / 2,
               `+${currentCfg.scoreMultiplier}`,
               '#fbbf24'
             );
-            addParticles(pipe.x + pipe.width / 2, pipe.topHeight + currentCfg.gap / 2, 10, [
-              '#fbbf24',
-              '#ffffff',
-              '#f59e0b',
-            ]);
+            addParticles(
+              pipe.x + pipe.width / 2,
+              pipe.topHeight + (pipe.bottomY - pipe.topHeight) / 2,
+              8,
+              ['#fbbf24', '#ffffff', '#f59e0b']
+            );
 
             if (score === 10 || score === 25 || score === 50 || score === 100) {
               audioSystem.playMilestone();
@@ -335,13 +369,12 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({
             }
           }
 
-          // Offscreen removal
           if (pipe.x + pipe.width < -40) {
             pipes.splice(i, 1);
             continue;
           }
 
-          // Precision collision checks
+          // Inset hitboxes
           const birdInset = 5;
           const birdLeft = bird.x + birdInset;
           const birdRight = bird.x + bird.width - birdInset;
@@ -358,7 +391,7 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({
           }
         }
 
-        bgScrollX = (bgScrollX + currentCfg.speed * 0.45) % viewW;
+        bgScrollX = (bgScrollX + baseSpeed * 0.35) % viewW;
         frame++;
       } else if (currentScreen === 'title') {
         frame++;
@@ -390,13 +423,11 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({
         }
       }
 
-      // Camera shake decay
       if (cameraShake > 0) {
         cameraShake *= 0.86;
         if (cameraShake < 0.2) cameraShake = 0;
       }
 
-      // Hit flash decay
       if (hitFlashAlpha > 0) {
         hitFlashAlpha -= 0.045;
         if (hitFlashAlpha < 0) hitFlashAlpha = 0;
@@ -408,16 +439,14 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({
       ctx.save();
       ctx.scale(dpr, dpr);
 
-      // Camera shake application
       if (cameraShake > 0) {
         const shakeX = (Math.random() - 0.5) * cameraShake;
         const shakeY = (Math.random() - 0.5) * cameraShake;
         ctx.translate(shakeX, shakeY);
       }
 
-      // 1. Full-bleed Background
+      // 1. Background
       if (bgImg.complete && bgImg.naturalWidth > 0) {
-        // Compute aspect fill
         const imgRatio = bgImg.naturalWidth / bgImg.naturalHeight;
         const targetH = viewH;
         const targetW = targetH * imgRatio;
@@ -431,7 +460,6 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({
           ctx.drawImage(bgImg, offsetX2 + targetW, 0, targetW, targetH);
         }
 
-        // Formal executive gradient tint
         const darkWash = ctx.createLinearGradient(0, 0, 0, viewH);
         darkWash.addColorStop(0, 'rgba(15, 23, 42, 0.45)');
         darkWash.addColorStop(0.5, 'rgba(2, 6, 23, 0.25)');
@@ -447,7 +475,7 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({
         ctx.fillRect(0, 0, viewW, viewH);
       }
 
-      // 2. High-Altitude Atmospheric Clouds
+      // 2. Atmospheric Clouds
       ctx.fillStyle = 'rgba(255, 255, 255, 0.16)';
       const cloud1 = (frame * 0.35) % (viewW + 200);
       const cloud2 = (frame * 0.2 + viewW * 0.5) % (viewW + 200);
@@ -470,7 +498,7 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({
           if (h <= 0) return;
 
           ctx.save();
-          roundRect(ctx, x, y, w, h, 14);
+          roundRect(ctx, x, y, w, h, isMobile() ? 10 : 14);
           ctx.clip();
 
           if (pipeImg.complete && pipeImg.naturalWidth > 0) {
@@ -509,19 +537,19 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({
 
           ctx.restore();
 
-          // Formal gold & obsidian outline border
+          // Gold rim border
           ctx.save();
           ctx.strokeStyle = 'rgba(245, 158, 11, 0.75)';
-          ctx.lineWidth = 2.5;
-          roundRect(ctx, x, y, w, h, 14);
+          ctx.lineWidth = isMobile() ? 2 : 2.5;
+          roundRect(ctx, x, y, w, h, isMobile() ? 10 : 14);
           ctx.stroke();
 
-          // Refined rim light accent
+          // Rim accent
           ctx.fillStyle = 'rgba(255, 255, 255, 0.25)';
           if (isTop) {
-            ctx.fillRect(x + 3, y + h - 6, w - 6, 3);
+            ctx.fillRect(x + 2, y + h - 5, w - 4, 2.5);
           } else {
-            ctx.fillRect(x + 3, y + 3, w - 6, 3);
+            ctx.fillRect(x + 2, y + 2.5, w - 4, 2.5);
           }
           ctx.restore();
         };
@@ -530,16 +558,15 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({
         renderColumn(pipe.x, pipe.bottomY, pipe.width, pipe.bottomHeight, false);
       });
 
-      // 4. Ground Runway / Formal Horizon Base
+      // 4. Ground Runway Base
       const runwayGrad = ctx.createLinearGradient(0, groundY, 0, viewH);
-      runwayGrad.addColorStop(0, '#d97706'); // Refined Gold
+      runwayGrad.addColorStop(0, '#d97706');
       runwayGrad.addColorStop(0.3, '#f59e0b');
-      runwayGrad.addColorStop(0.6, '#ffffff'); // Pure White
-      runwayGrad.addColorStop(1, '#059669'); // Emerald
+      runwayGrad.addColorStop(0.6, '#ffffff');
+      runwayGrad.addColorStop(1, '#059669');
       ctx.fillStyle = runwayGrad;
       ctx.fillRect(0, groundY, viewW, groundH);
 
-      // Runway guideline
       ctx.fillStyle = '#020617';
       ctx.fillRect(0, groundY - 2, viewW, 2);
 
@@ -597,11 +624,11 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({
       }
       ctx.restore();
 
-      // 7. Floating Point Clear Indicators
+      // 7. Floating Texts
       floatingTexts.forEach((ft) => {
         ctx.save();
         ctx.globalAlpha = Math.max(0, ft.alpha);
-        ctx.font = '800 16px Poppins, sans-serif';
+        ctx.font = isMobile() ? '800 14px Poppins, sans-serif' : '800 16px Poppins, sans-serif';
         ctx.textAlign = 'center';
         ctx.fillStyle = ft.color;
         ctx.shadowColor = 'rgba(0,0,0,0.9)';
@@ -623,7 +650,7 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({
 
     animationFrameId = requestAnimationFrame(loop);
 
-    // Responsive user input
+    // Responsive user input with de-bouncing to prevent ghost double-taps on mobile
     const onKeyDown = (e: KeyboardEvent) => {
       if (e.code === 'Space' || e.code === 'ArrowUp' || e.code === 'KeyW') {
         e.preventDefault();
@@ -631,18 +658,38 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({
       }
     };
 
-    const onPointerDown = (e: MouseEvent | TouchEvent) => {
-      // Don't trigger if clicked on an interactive UI element
+    const handlePointerAction = (e: TouchEvent | MouseEvent) => {
+      // Ignore if user tapped on a button/input
       const target = e.target as HTMLElement | null;
       if (target && target.closest('button, input, select, a')) {
         return;
       }
+
+      const now = performance.now();
+      if (now - lastTouchTimeRef.current < 60) {
+        return; // debounce multi-events (e.g. touchstart followed immediately by mousedown)
+      }
+      lastTouchTimeRef.current = now;
+
+      // Unlock audio instantly on direct touch
+      audioSystem.unlockAudio();
       jumpTriggeredRef.current = true;
     };
 
+    const onTouchStart = (e: TouchEvent) => {
+      // Prevent browser default scroll/zoom gestures on game canvas
+      if (e.cancelable) {
+        const target = e.target as HTMLElement | null;
+        if (!target || !target.closest('button, input, select, a')) {
+          e.preventDefault();
+        }
+      }
+      handlePointerAction(e);
+    };
+
     window.addEventListener('keydown', onKeyDown);
-    window.addEventListener('mousedown', onPointerDown);
-    window.addEventListener('touchstart', onPointerDown, { passive: false });
+    window.addEventListener('mousedown', handlePointerAction);
+    window.addEventListener('touchstart', onTouchStart, { passive: false });
 
     const handleRestartEvent = () => resetGame();
     window.addEventListener('game:restart', handleRestartEvent);
@@ -651,8 +698,8 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({
       cancelAnimationFrame(animationFrameId);
       window.removeEventListener('resize', resizeCanvas);
       window.removeEventListener('keydown', onKeyDown);
-      window.removeEventListener('mousedown', onPointerDown);
-      window.removeEventListener('touchstart', onPointerDown);
+      window.removeEventListener('mousedown', handlePointerAction);
+      window.removeEventListener('touchstart', onTouchStart);
       window.removeEventListener('game:restart', handleRestartEvent);
     };
   }, []);
@@ -660,7 +707,7 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({
   return (
     <canvas
       ref={canvasRef}
-      className="absolute inset-0 w-full h-full block select-none bg-slate-950 cursor-pointer"
+      className="absolute inset-0 w-full h-full block select-none bg-slate-950 cursor-pointer touch-none"
     />
   );
 };
